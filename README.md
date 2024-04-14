@@ -55,7 +55,7 @@ We welcome contributions to Project TinyNet. Please read `CONTRIBUTING.md` for d
 - Xuanting Chen
 
 ## License
-This project is licensed under the MIT License - see the `LICENSE.md` file for details.
+This project is not licensed, hence, all copyrights are reserved.
 
 ## Acknowledgments
 - Inspired by the work on xv6 and the networking stack enhancements in various Unix-like operating systems.

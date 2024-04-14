@@ -9,13 +9,17 @@ Project TinyNet extends the xv6 operating system, a Unix-like educational system
 - **Correctness and Performance Tests**: Includes tests to verify the system's functionality and to benchmark its performance.
 
 ## System Architecture
-![Network Architecture](pics/image_intro.png)
-*Figure 1: Network Architecture showing interaction between device, driver, networking stack, and applications.*
-![Data Transmission](pics/image_socket1.png)
-*Figure 2: Data Transmission showing how data is transmitted from devices to the userspace.*
-![Socket Flow](pics/image_socket.png)
-*Figure 23: Socket Flows showing the interaction between server-side and client-side sockets.*
+<div align="center">
+  <img src="pics/image_intro.png" width="32%">
+  <p><em>Figure 1: Network Architecture showing interaction between device, driver, networking stack, and applications.</em></p>
+</div>
 
+<div align="center">
+  <img src="pics/image_socket1.png" width="32%">
+  <img src="pics/image_socket.png" width="32%">
+  <p><em>Figure 2: Data Transmission showing how data is transmitted from devices to the userspace.</em></p>
+  <p><em>Figure 3: Socket Flows showing the interaction between server-side and client-side sockets.</em></p>
+</div>
 
 ## Installation
 1. Ensure you have QEMU installed on your machine. Visit [QEMU](https://www.qemu.org/) for installation instructions.

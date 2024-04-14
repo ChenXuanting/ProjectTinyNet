@@ -1,0 +1,8 @@
+{
+  "name": "alloc",
+  "commit": "f0950a55d9174dd4343af9c9a1288bde1d6ec498",
+  "replace": [
+    "gradelib.py",
+    "grade-lab-alloc"
+  ]
+}

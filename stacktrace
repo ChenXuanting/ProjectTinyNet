@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+
+import fileinput
+import re
+import subprocess
+import sys
+
+SYMBOL = "kernel/kernel.sym"
+
+def main():
+    symtable = gensymtable()
+    pattern = re.compile(r"^\[<0x([0-9a-f]+)>\]$")
+    line = ""
+    while True:
+        c = sys.stdin.read(1)
+        if not c:
+            break
+        line = line + c
+        if c != '\n':
+            sys.stdout.write(c)
+            sys.stdout.flush()
+            continue
+        m = pattern.match(line)
+        line = ""
+        if not m:
+            sys.stdout.write(c)
+            continue
+        addr = int(m.group(1), base=16)
+        sys.stdout.write(" %s\n" % (addr2name(symtable, addr)))
+
+def gensymtable():
+    lst = []
+    for line in open(SYMBOL, "r"):
+      addr, sym = line.split()
+      lst.append((int(addr, base=16),  sym))
+    lst.sort()
+    return lst
+
+def addr2name(symtable, key):
+    base = 0
+    func = None
+    for addr, sym in symtable:
+        if key > addr:
+            base = addr
+            func = sym
+        else:
+            break
+    if not func:
+        return "?"
+    return "%s+0x%x/0x%x" % (func, key - base, addr - base)
+
+if __name__ == "__main__":
+    main()

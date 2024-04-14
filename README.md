@@ -46,9 +46,6 @@ This command builds the project and starts the xv6 operating system in QEMU with
 ## Performance
 The system performance is measured by the response times of the client and server implementations using the 'ping-pong' test. Our results indicate that while the server-side has slower response times possibly due to intensive lock calls, the client-side performs faster than a typical Windows socket implementation.
 
-## Contributing
-We welcome contributions to Project TinyNet. Please read `CONTRIBUTING.md` for details on our code of conduct, and the process for submitting pull requests.
-
 ## Authors
 - Yuchen Cao
 - Yicheng Jin

@@ -38,11 +38,25 @@ argfd(int n, int *pfd, struct file **pf)
 
 // Allocate a file descriptor for the given file.
 // Takes over file reference from caller on success.
-static int
+int
 fdalloc(struct file *f)
 {
   int fd;
   struct proc *p = myproc();
+
+  for(fd = 0; fd < NOFILE; fd++){
+    if(p->ofile[fd] == 0){
+      p->ofile[fd] = f;
+      return fd;
+    }
+  }
+  return -1;
+}
+
+int
+fdalloc_for_proc(struct file *f, struct proc *p)
+{
+  int fd;
 
   for(fd = 0; fd < NOFILE; fd++){
     if(p->ofile[fd] == 0){
@@ -493,70 +507,129 @@ sys_socket(void)
   int domain, type, protocol;
   if(argint(0, &domain) < 0 || argint(1, &type) < 0 || argint(2, &protocol) < 0)
     return -1;
-  return sockalloc(domain, type, protocol);
+  return sockalloc(domain, type, protocol, 0, 0);
 }
 
 uint64
 sys_connect(void)
 {
   int sockfd;
-  struct sockaddr *addr;
+  uint64 user_addr;
+  struct sockaddr addr;
   int addrlen;
-  if (argint(0, &sockfd) < 0 || argaddr(1, (uint64 *)&addr) < 0 || argint(2, &addrlen) < 0)
+  
+  if (argint(0, &sockfd) < 0 || argaddr(1, &user_addr) < 0 || argint(2, &addrlen) < 0)
     return -1;
-  return sockconnect(sockfd, addr, addrlen);
-}
 
-// uint64
-// sys_bind(void)
-// {
-//   int sockfd;
-//   struct sockaddr *addr;
-//   int addrlen;
-//   if(argint(0, &sockfd) < 0 || argaddr(1, (uint64*)&addr) < 0 || argint(2, &addrlen) < 0)
-//     return -1;
-//   return sockbind(sockfd, addr, addrlen);
-// }
-
-// uint64
-// sys_listen(void)
-// {
-//   int sockfd, backlog;
-//   if(argint(0, &sockfd) < 0 || argint(1, &backlog) < 0)
-//     return -1;
-//   return socklisten(sockfd, backlog);
-// }
-
-uint64
-sys_accept(void)
-{
-  int sockfd;
-  struct sockaddr *addr;
-  int *addrlen;
-  if(argint(0, &sockfd) < 0 || argaddr(1, (uint64*)&addr) < 0 || argaddr(2, (uint64*)&addrlen) < 0)
+  // copy struct sockaddr from user space to kernel space
+  if (copyin(myproc()->pagetable, (char*)&addr, user_addr, sizeof(addr)) < 0)
     return -1;
-  return sockaccept(sockfd, addr, addrlen);
-}
 
+  return sockconnect(sockfd, &addr, addrlen);
+}
 
 uint64
 sys_bind(void)
 {
-
-  struct file *f;
-  struct sockaddr *addr;
+  int sockfd;
+  uint64 user_addr;
+  struct sockaddr addr;
   int addrlen;
-  if(argfd(0, 0, &f) < 0|| argaddr(1, (uint64*)&addr) < 0 || argint(2, &addrlen) < 0)
+  if (argint(0, &sockfd) < 0 || argaddr(1, &user_addr) < 0 || argint(2, &addrlen) < 0)
     return -1;
-  return sockbind((struct socket *)(f->sock), addr, addrlen);
+
+  // copy struct sockaddr from user space to kernel space
+  if (copyin(myproc()->pagetable, (char*)&addr, user_addr, sizeof(addr)) < 0)
+    return -1;
+  
+  return sockbind(sockfd,  &addr, addrlen);
 }
 
 uint64
 sys_listen(void)
 {
-   struct file *f;
-  int backlog;
-  if(argfd(0, 0, &f) < 0|| argint(1, &backlog) < 0)
+  int sockfd, backlog;
+  if(argint(0, &sockfd) < 0 || argint(1, &backlog) < 0)
     return -1;
-  return socklisten((struct socket *)(f->sock), backlog);
+  return socklisten(sockfd, backlog);
+}
+
+uint64
+sys_accept(void)
+{
+  int sockfd;
+  uint64 user_addr;
+  uint64 user_addrlen;
+  
+  if(argint(0, &sockfd) < 0 || argaddr(1, &user_addr) < 0 || argaddr(2, &user_addrlen) < 0)
+    return -1;
+  
+  struct sockaddr addr;
+  int addrlen;
+  int new_sockfd;
+
+  if ((new_sockfd = sockaccept(sockfd, &addr, &addrlen)) < 0)
+    return -1;
+  
+  pagetable_t pagetable = myproc()->pagetable;
+  if (copyout(pagetable, user_addr, (char*)&addr, sizeof(addr)) < 0 || 
+      copyout(pagetable, user_addrlen, (char*)&addrlen, sizeof(addrlen)) < 0)
+    return -1;
+  
+  return new_sockfd;
+}
+
+uint64
+sys_gethostbyname(void)
+{
+  char name[MAX_DOMAIN_NAME];
+  uint64 addr;
+
+  if(argstr(0, name, MAX_DOMAIN_NAME) < 0 || argaddr(1, &addr) < 0)
+    return -1;
+
+  struct sockaddr res;
+
+  // copyin sockaddr from user space
+  if(copyin(myproc()->pagetable, (char*)&res, addr, sizeof(res)) < 0)
+    return -1;
+
+  int rc = sockgethostbyname(name, &res);
+
+  // copyout sockaddr to user space
+  if (rc == 0)
+    if (copyout(myproc()->pagetable, addr, (char*)&res, sizeof(res)) < 0)
+      return -1;
+
+  return rc;
+}
+
+/*
+input: (char *) ip address
+output: networking style address
+*/
+uint64
+sys_inetaddress(void)
+{
+  char char_addr[MAX_ADDRESS_LENGTH];
+  uint64 addr;
+
+  if(argstr(0, char_addr, MAX_ADDRESS_LENGTH) < 0 || argaddr(1, &addr) < 0)
+    return -1;
+
+  struct sockaddr res;
+
+  // copyin sockaddr from user space
+  if(copyin(myproc()->pagetable, (char*)&res, addr, sizeof(res)) < 0)
+    return -1;
+
+  int rc = sockinetaddress(char_addr, &res);
+
+  // copyout sockaddr to user space
+  if (rc == 0)
+    if (copyout(myproc()->pagetable, addr, (char*)&res, sizeof(res)) < 0)
+      return -1;
+
+
+  return rc;
 }

@@ -134,3 +134,8 @@ memcpy(void *dst, const void *src, uint n)
 {
   return memmove(dst, src, n);
 }
+
+
+uint16 htons(uint16 n) {
+    return (n >> 8) | (n << 8);
+}

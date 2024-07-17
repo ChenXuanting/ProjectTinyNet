@@ -66,6 +66,8 @@ void mmio_virtq_init(struct virtqueue *q, int qidx) {
 
     // 5. notify the device about the queue size
     *R(VIRTIO_MMIO_QUEUE_NUM) = NUM;
+    if (qidx == 0) // RX queue
+        *R(VIRTIO_MMIO_QUEUE_NUM) = 2*NUM;
 
     // 6. write PA of three parts of the queue to the device
     *R(VIRTIO_MMIO_QUEUE_DESC_LOW)   = (uint64)q->desc;
@@ -110,10 +112,9 @@ fill_rx(int i) {
     net.rx.desc[2*i+1].addr = (uint64)net.recv_buf[i];
     net.rx.desc[2*i+1].len = PGSIZE;
     net.rx.desc[2*i+1].flags = VIRTQ_DESC_F_WRITE;  // device writes to this buffer
-    net.rx.desc[2*i+1].next = 0;               // VIRTQ_DESC_F_NEXT not set: no chaining
+    net.rx.desc[2*i+1].next = 0;                    // VIRTQ_DESC_F_NEXT not set: no chaining
 
-    int avail = net.rx.avail->idx % NUM;
-    net.rx.avail->ring[avail] = 2*i;
+    net.rx.avail->ring[net.rx.avail->idx % (2 * NUM)] = 2*i;
     __sync_synchronize();
     net.rx.avail->idx++;
 
@@ -161,7 +162,7 @@ void virtio_net_init(void *mac) {
         !(features & (1 << VIRTIO_NET_F_MRG_RXBUF)))
             panic("virtio_net_init: device does not support MAC or MRG_RXBUF");
 
-    // !! enable VIRTIO_NET_F_CSUM (0) 
+    // !! disable VIRTIO_NET_F_CSUM (0) 
     // Device (not driver) handles packets with partial checksum. 
     // If not negotiated, the driver SHOULD supply a fully checksummed packet to the device.
     features &= ~(1 << VIRTIO_NET_F_CSUM);
@@ -250,8 +251,8 @@ alloc_desc(struct virtqueue *q)
 {
   for(int i = 0; i < NUM; i++){
     if(q->free[i]){
-      q->free[i] = 0;
-      return i;
+        q->free[i] = 0;
+        return i;
     }
   }
   return -1;
@@ -267,7 +268,6 @@ free_desc(struct virtqueue *q, int i)
     panic("free_desc: double free");
   q->desc[i].addr = 0;
   q->free[i] = 1;
-  wakeup(&q->free[0]);  // wake up potential waiters
 }
 
 /* send data; return 0 on success */
@@ -278,16 +278,25 @@ int virtio_net_send(const void *data, int len) {
     // if the available ring is full, drop the packet
     // avail->idx and used->idx are only increased (no modulo)
     if (net.tx.avail->idx - net.tx.used->idx == NUM) {
+        printf("virtio_net_send: ring full\n");
         release(&net.vnet_lock);
         return -1;
     }
 
+    // first free all used descriptors
+    while (net.tx.used->idx > net.tx.used_idx) {
+        struct virtq_used_elem *e = &net.tx.used->ring[net.tx.used_idx % NUM];
+        free_desc(&net.tx, e->id);
+        net.tx.used_idx++;
+    }
+
     // allocate one descriptor for header + data
     int idx = 0;
-    while (1) {
-        if ((idx = alloc_desc(&net.tx)) >= 0) 
-            break;
-        sleep(&net.tx.free[0], &net.vnet_lock);
+    if ((idx = alloc_desc(&net.tx)) < 0) {
+        printf("virtio_net_send: no available descriptor\n");
+        printf("virtio_net_send: avail->idx = %d, used->idx = %d, used_idx = %d\n", net.tx.avail->idx, net.tx.used->idx, net.tx.used_idx);
+        release(&net.vnet_lock);
+        return -1;
     }
 
     // get preallocated buffer by idx
@@ -314,8 +323,7 @@ int virtio_net_send(const void *data, int len) {
     net.tx.desc[idx].next = 0;      // device only reads from this buffer
 
     // update the available ring
-    int avail = net.tx.avail->idx % NUM;
-    net.tx.avail->ring[avail] = idx;
+    net.tx.avail->ring[net.tx.avail->idx % NUM] = idx;
     __sync_synchronize();  // TODO: why?
     net.tx.avail->idx++;
 
@@ -326,10 +334,12 @@ int virtio_net_send(const void *data, int len) {
     if (myproc() == 0) {
         // should not sleep because interrupt is disabled
         // user->idx is incremented by the device
-        while ((net.tx.used->idx % NUM) == (net.tx.used_idx % NUM))
+        while (net.tx.used->idx == net.tx.used_idx)
             ;
 
-        net.tx.used_idx = (net.tx.used_idx + 1) % NUM;
+        struct virtq_used_elem *e = &net.tx.used->ring[net.tx.used_idx % NUM];
+        free_desc(&net.tx, e->id);
+        net.tx.used_idx++;
     }
 
     release(&net.vnet_lock);
@@ -342,16 +352,10 @@ int virtio_net_send(const void *data, int len) {
 int virtio_net_recv(void *data, int len) {
     acquire(&net.vnet_lock);
 
-    // if called during initialization (DHCP-ARP), return immediately
-    // TODO: not sure if this is the correct way to handle this, but it works
-    if (myproc() == 0 && (net.rx.used->idx % NUM) == (net.rx.used_idx % NUM)) {
+    // return immediately if there is no packet to receive
+    if (net.rx.used->idx == net.rx.used_idx) {
         release(&net.vnet_lock);
         return 0;
-    }
-
-    // wait for the device if the ring is empty
-    while ((net.rx.used->idx % NUM) == (net.rx.used_idx % NUM)) {
-        sleep(&net.rx, &net.vnet_lock);
     }
 
     // get received packet
@@ -359,7 +363,7 @@ int virtio_net_recv(void *data, int len) {
     struct virtq_used_elem *used;
     void *data_ptr;
 
-    used = &net.rx.used->ring[net.rx.used_idx];
+    used = &net.rx.used->ring[net.rx.used_idx % (2 * NUM)];
     hdr_idx = used->id;                                     // index of the header descriptor
     data_idx = net.rx.desc[hdr_idx].next;                   // index of the data descriptor
     data_ptr = (void *)net.rx.desc[data_idx].addr;          // address of the data
@@ -369,7 +373,7 @@ int virtio_net_recv(void *data, int len) {
     memmove(data, data_ptr, data_len);
 
     // update bookkeeping info
-    net.rx.used_idx = (net.rx.used_idx + 1) % NUM;
+    net.rx.used_idx++;
 
     // refill RX and notify the device
     // reuse the descriptor chain, no need to free and allocate it
@@ -380,6 +384,7 @@ int virtio_net_recv(void *data, int len) {
     return data_len;
 }
 
+// TODO: somehow this function is never called after the initialization
 // will be called in trap.c devintr()
 void
 virtio_net_intr(void)
@@ -393,15 +398,15 @@ virtio_net_intr(void)
     }
 
     // incoming packet: wake up potential waiters
-    if ((net.rx.used->idx % NUM) != (net.rx.used_idx % NUM)) {
+    if (net.rx.used->idx > net.rx.used_idx) {
         // descriptor chain is freed in virtio_net_recv()
         wakeup(&net.rx);
     }
 
     // outgoing packet: free descriptors and do some bookkeeping
-    if ((net.tx.used->idx % NUM) != (net.tx.used_idx % NUM)) {
-        free_desc(&net.tx, net.tx.used->ring[net.tx.used_idx].id);
-        net.tx.used_idx = (net.tx.used_idx + 1) % NUM;
+    if (net.tx.used->idx > net.tx.used_idx) {
+        free_desc(&net.tx, net.tx.used->ring[net.tx.used_idx % NUM].id);
+        net.tx.used_idx++;
     }
 
     // acknowledge the interrupt

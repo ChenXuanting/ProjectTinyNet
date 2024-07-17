@@ -457,6 +457,10 @@ scheduler(void)
     // cause a lost wakeup.
     intr_off();
 
+    // check for incoming packets
+    if (ticks % 5 == 0)
+      nettimer();
+
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
@@ -689,4 +693,8 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint sys_timenow(){
+  return ticks;
 }

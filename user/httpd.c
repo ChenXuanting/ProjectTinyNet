@@ -1,5 +1,10 @@
-#include "socket.h"
-#include "user.h"
+#include "kernel/param.h"
+#include "kernel/types.h"
+#include "kernel/spinlock.h"
+#include "kernel/socket.h"
+#include "kernel/stat.h"
+#include "kernel/fcntl.h"
+#include "user/user.h"
 
 #define PORT 80
 #define PRODUCT "httpd/0.1"
@@ -25,7 +30,7 @@ static int forkclient = 1;
 
 struct http_request {
     int sock;
-    struct sockaddr_in *client;
+    struct sockaddr *client;
     int verb;
     char *url;
     char *version;
@@ -54,7 +59,7 @@ struct error_messages errors[] = {
 static void die(char *m)
 {
     dprintf(2, "httpd: %s\n", m);
-    exit();
+    exit(0);
 }
 
 static void req_free(struct http_request *req)
@@ -66,7 +71,7 @@ static void req_free(struct http_request *req)
 static void log(struct http_request *req, int code)
 {
     unsigned int hh, mm, ss;
-    uint64_t now;
+    uint64 now;
 
     if (!debug)
         return;
@@ -80,12 +85,12 @@ static void log(struct http_request *req, int code)
             mm, ss, http_verbs[req->verb], req->url, req->version, code);
 }
 
-static ssize_t sendn(int sockfd, const void *buf, size_t len)
+static uint64 sendn(int sockfd, const void *buf, uint64 len)
 {
-    ssize_t i = 0, r;
+    uint64 i = 0, r;
 
     while (i < len) {
-        r = send(sockfd, buf + i, len - i, 0);
+        r = write(sockfd, buf + i, len - i, 0);
 
         if (r < 0)
             break;
@@ -134,10 +139,10 @@ static int send_data(struct http_request *req, int fd)
     }
 }
 
-static int send_size(struct http_request *req, off_t size)
+static int send_size(struct http_request *req, int size)
 {
     char buf[64];
-    size_t n;
+    uint64 n;
 
     snprintf(buf, sizeof(buf), "Content-Length: %ld\r\n", (long)size);
     n = strlen(buf);
@@ -169,7 +174,7 @@ static const char *mime_type(const char *file)
 static int send_content_type(struct http_request *req, const char *type)
 {
     char buf[128];
-    size_t n;
+    uint64 n;
 
     snprintf(buf, sizeof(buf), "Content-Type: %s\r\n", type);
     n = strlen(buf);
@@ -191,7 +196,7 @@ static int send_header_fin(struct http_request *req)
     return 0;
 }
 
-static int decode_hex(uint8_t c)
+static int decode_hex(uint8 c)
 {
     if (c >= '0' && c <= '9')
         return c - '0';
@@ -202,9 +207,9 @@ static int decode_hex(uint8_t c)
     return 0;
 }
 
-static void decode_url(char *t, const char *s, size_t n)
+static void decode_url(char *t, const char *s, uint64 n)
 {
-    size_t i;
+    uint64 i;
 
     for (i = 0; i < n; ++i, ++t) {
         switch (s[i]) {
@@ -282,7 +287,7 @@ static int http_request_parse(struct http_request *req, char *request)
 static int send_error(struct http_request *req, int code)
 {
     char buf[512];
-    size_t n;
+    uint64 n;
 
     struct error_messages *e = errors;
     while (e->code != 0 && e->msg != 0) {
@@ -313,7 +318,7 @@ static int send_error(struct http_request *req, int code)
 static int send_exec(struct http_request *req)
 {
     int r;
-    pid_t pid;
+    uint64 pid;
     char cmd[512];
     const char *url = req->url;
 
@@ -341,7 +346,7 @@ static int send_exec(struct http_request *req)
     if (pid < 0)
         die("send_exec: fork");
     if (pid) {
-        wait();
+        wait(0);
         return 0;
     }
 
@@ -353,10 +358,10 @@ static int send_exec(struct http_request *req)
     }
     if (dup2(1, 2) < 0)
         die("send_exec: dup 2");
-    r = execl("sh", "sh", cmd, NULL);
+    r = execl("sh", "sh", cmd, 0);
     if (r < 0)
         dprintf(1, "exec: %d", r);
-    exit();
+    exit(0);
     return 0;
 }
 
@@ -405,7 +410,7 @@ end:
     return r;
 }
 
-static int has_newline(const char *buf, size_t n)
+static int has_newline(const char *buf, uint64 n)
 {
     const char *p;
 
@@ -428,7 +433,7 @@ static void handle_client(int sock, struct sockaddr_in *client)
     struct http_request con_d;
     int r;
     char buffer[BUFFSIZE];
-    size_t received = 0;
+    uint64 received = 0;
     struct http_request *req = &con_d;
 
     while (1) {
@@ -467,16 +472,18 @@ static void handle_client(int sock, struct sockaddr_in *client)
 int main(int argc, char **argv)
 {
     int serversock, clientsock;
-    struct sockaddr_in server, client;
+    struct sockaddr server, client;
 
-    if ((serversock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
+    if ((serversock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
         die("failed to create socket");
 
     memset(&server, 0, sizeof(server));
-    server.sin_family = AF_INET;
-    server.sin_addr.s_addr = htonl(INADDR_ANY);
-    server.sin_port = htons(PORT);
+    server.sa_family = AF_INET;
+    server.sin_addr = htonl(INADDR_ANY);
+    server.sin_port = htons(PORT)
 
+    inetaddress(SERVER_HOST,&serv_addr);  
+    
     if (bind(serversock, (struct sockaddr *)&server, sizeof(server)) < 0) {
         die("failed to bind the server socket");
     }
@@ -487,25 +494,25 @@ int main(int argc, char **argv)
     dprintf(1, "httpd: waiting for http connections...\n");
 
     while (1) {
-        socklen_t clientlen = sizeof(client);
+        int clientlen = sizeof(client);
 
         clientsock = accept(serversock, (struct sockaddr *)&client, &clientlen);
-        if (clientsock < 0)
-            die("failed to accept client connection");
-        if (forkclient) {
-            pid_t pid = fork();
+        // if (clientsock < 0)
+        //     die("failed to accept client connection");
+        // if (forkclient) {
+        //     pid_t pid = fork();
 
-            if (pid) {
-                close(clientsock);
-                while (pid != wait())
-                    yield();
-            } else {
-                handle_client(clientsock, &client);
-                exit();
-            }
-        } else {
-            handle_client(clientsock, &client);
-        }
+        //     if (pid) {
+        //         close(clientsock);
+        //         while (pid != wait())
+        //             yield();
+        //     } else {
+        //         handle_client(clientsock, &client);
+        //         exit();
+        //     }
+        // } else {
+        handle_client(clientsock, &client);
+        // }
     }
 
     close(serversock);

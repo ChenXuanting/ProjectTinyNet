@@ -1,56 +1,63 @@
-#include<lwip/inet.h>
-#include<lwip/ip4_addr.h>
-typedef enum  {AF_INET=0,AF_INET6,AF_LOCAL,AF_ROUTE} sa_family_t;
+// lwip/sockets.h
+/* Socket address family */
+#define AF_INET         2
+
+/* Socket protocol types (TCP/UDP) */
+#define SOCK_STREAM     1
+#define SOCK_DGRAM      2
+
+// linux: include/uapi/linux/net.h
+typedef enum {
+	SS_FREE = 0,			// not allocated
+	SS_UNCONNECTED,			// unconnected to any socket
+	SS_CONNECTING,			// in process of connecting
+    SS_LISTENING,           // in listen mode
+    SS_ACCEPTING,           // accepting incoming connection
+	SS_CONNECTED,			// connected to socket
+    SS_SENDING,             // sending data
+    SS_RECVING,             // receiving data
+} socket_state;
+
+#define SEND_BUFLEN 1024
+#define RECV_BUFLEN 1024
+
 struct socket {
- // socket_state state; //Connect
-  short type; 
-  sa_family_t sin_family; 
- // unsigned long flags;
- // struct socket_wq __rcu * wq; //spin
- 
-  struct file * file;
- // struct sock * sk;
-//   uint16 sin_port;
-  struct tcp_pcb * pcb;
-  int socket_fd;
-//   const struct proto_ops * ops;
-};  
+    int domain;                     // address family, always AF_INET
+    int type;                       // socket type, SOCK_STREAM or SOCK_DGRAM
+    int protocol;                   // always 0
+    socket_state state;             // socket state
 
+    struct spinlock lock;           // socket lock
+    struct tcp_pcb *pcb;
+    struct tcp_pcb *accept_pcb;     // for listening sockets
+    int accept_fd;                  // for listening sockets
 
-// struct sockaddr {
-// };
+    int sent_len;                   // total number of bytes sent
+    uint8 send_buf[SEND_BUFLEN];    // send buffer
 
-// typedef enum sa_family_t {AF_INET,AF_INET6,AF_LOCAL,AF_ROUTE};
-// typedef enum sock_type {SOCK_STREAM,SOCK_DGRAM,SOCK_RAW,SOCK_PACKET,SOCK_SEQPACKET};
-// typedef enum sock_prot {IPPROTO_TCP,IPPTOTO_UDP,IPPROTO_SCTP,IPPROTO_TIPC};
+    int recv_avail;                 // pointer to the next available byte in recv_buf
+    int recv_used;                  // pointer to the next byte to be read from recv_buf
+    int eof_reached;                // end of file reached
+    uint8 recv_buf[RECV_BUFLEN];    // receive buffer
 
-// /* Internet address. */ 
-// struct in_addr { uint32_t s_addr; /* address in network byte order */ }; 
+    struct proc *owner;             // process that owns this socket
 
-struct sockaddr { 
-    sa_family_t sin_family; /* address family: AF_INET */ 
-    uint16 sin_port; /* port in network byte order */ 
-    struct ip4_addr sin_addr; /* internet address */ 
-}; 
-    
+    struct file *file;              // file pointer
+    int fd;                         // file descriptor
 
+    int sem;                        // semaphore for async operations, protected by socket lock
+    int recv_sem;                   // semaphore for async recv operations, protected by socket lock
+};
 
-// struct cmsghdr {
-//     socklen_t     cmsg_len;     /* data byte count, including hdr */
-//     int           cmsg_level;   /* originating protocol */
-//     int           cmsg_type;    /* protocol-specific type */
-// /* followed by
-//     unsigned char cmsg_data[]; */
-// };
+struct sockaddr
+{
+    uint16 sa_family;       // address family, AF_INET
+    uint16 sin_port;        // port in network byte order
+    uint32 sin_addr;        // address in network byte order
+    uint8 sin_zero[8];      // zero this if you want to
+};
 
-
-	// struct hostent
-	// {
-	// 	char *h_name;         //正式主机名
-	// 	char **h_aliases;     //主机别名
-	// 	int h_addrtype;       //主机IP地址类型：IPV4-AF_INET
-	// 	int h_length;		  //主机IP地址字节长度，对于IPv4是四字节，即32位
-	// 	char **h_addr_list;	  //主机的IP地址列表
-	// };
-	
-	// #define h_addr h_addr_list[0]   //保存的是IP地址
+// fixed DNS server address
+#define MAX_DOMAIN_NAME 256
+#define MAX_ADDRESS_LENGTH 256
+#define DNS_SERVER_IP 0x08080808    // Google DNS server

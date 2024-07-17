@@ -11,6 +11,7 @@
 #include "lwip/timeouts.h"
 
 struct netif netif;
+struct spinlock lwip_lock;
 
 err_t
 linkoutput(struct netif *netif, struct pbuf *p)
@@ -41,6 +42,7 @@ linkinput(struct netif *netif)
     /* shrink pbuf to actual size */
     pbuf_realloc(p, len);
 
+    printf("linkinput: received %d bytes\n", len);
     if(netif->input(p, netif) == ERR_OK)
       return len;
 
@@ -105,13 +107,17 @@ netadd(void)
 int
 nettimer(void)
 {
+  acquire(&lwip_lock);
   sys_check_timeouts();
-  return linkinput(&netif);
+  int rc = linkinput(&netif);
+  release(&lwip_lock);
+  return rc;
 }
 
 void
 netinit(void)
 {
+  initlock(&lwip_lock, "lwip");
   lwip_init();
   netadd();
   netif_set_default(&netif);

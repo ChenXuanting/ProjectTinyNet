@@ -10,6 +10,7 @@ struct stat;
 struct superblock;
 struct socket;
 struct sockaddr;
+struct tcp_pcb;
 
 // bio.c
 void            binit(void);
@@ -28,6 +29,8 @@ void            consputc(int);
 int             exec(char*, char**);
 
 // file.c
+int             fdalloc(struct file*);
+int             fdalloc_for_proc(struct file*, struct proc*);
 struct file*    filealloc(void);
 void            fileclose(struct file*);
 struct file*    filedup(struct file*);
@@ -79,14 +82,17 @@ int             piperead(struct pipe*, uint64, int);
 int             pipewrite(struct pipe*, uint64, int);
 
 // socket.c
-int             sockalloc(int, int, int);
+void            sockinit(void);
+int             sockalloc(int, int, int, struct tcp_pcb*, struct proc*);
 void            sockclose(struct socket*);
 int             sockread(struct socket*, uint64, int);
 int             sockwrite(struct socket*, uint64, int);
 int             sockconnect(int, const struct sockaddr*, int);
-int             sockbind(struct socket *, const struct sockaddr*, int);
-int socklisten(struct socket *, int);
+int             sockbind(int, const struct sockaddr*, int);
+int             socklisten(int, int);
 int             sockaccept(int, struct sockaddr*, int*);
+int             sockgethostbyname(const char*, struct sockaddr*);
+int             sockinetaddress(const char*, struct sockaddr*);
 
 // printf.c
 void            backtrace(void);

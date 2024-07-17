@@ -31,6 +31,9 @@ int connect(int, const struct sockaddr*, int);
 int bind(int, const struct sockaddr*, int);
 int listen(int, int);
 int accept(int, struct sockaddr*, int*);
+int gethostbyname(const char*, struct sockaddr*);
+int inetaddress(const char*, struct sockaddr*);
+uint timenow();
 
 // ulib.c
 int stat(const char*, struct stat*);
@@ -48,3 +51,4 @@ void free(void*);
 int atoi(const char*);
 int memcmp(const void *, const void *, uint);
 void *memcpy(void *, const void *, uint);
+uint16 htons(uint16 n);

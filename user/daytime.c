@@ -1,41 +1,51 @@
+#include "kernel/param.h"
 #include "kernel/types.h"
-#include "kernel/stat.h"
+#include "kernel/spinlock.h"
+#include "kernel/socket.h"
 #include "user/user.h"
-#include "lwip/inet.h"
 
 /* RFC 867: Daytime Protocol */
 #define SERVER_HOST "utcnist.colorado.edu"
 #define SERVER_PORT 13
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
-    struct hostent *hp;
     int sockfd, r;
-    struct sockaddr_in addr = {
-        .sin_family = PF_INET, .sin_port = htons(SERVER_PORT),
+    struct sockaddr addr = {
+        .sa_family = AF_INET, 
+        .sin_port = htons(SERVER_PORT),
     };
 
-    hp = gethostbyname(SERVER_HOST);  
-    assert(hp, "gethostbyname");
-    addr.sin_addr = *(struct in_addr *)(hp->h_addr);
-    dprintf(1, "daytime: %s %s\n", hp->h_name, inet_ntoa(addr.sin_addr));
+    printf("daytime: running DNS lookup for %s\n", SERVER_HOST);
+    if ((r = gethostbyname(SERVER_HOST, &addr)) < 0) {
+        printf("gethostbyname failed: %d\n", r);
+        exit(1);
+    }
 
-    sockfd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-    assert(sockfd >= 0, "socket");
+    printf("daytime: creating socket\n");
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        printf("daytime: socket failed: %d\n", sockfd);
+        exit(1);
+    }
 
-    r = connect(sockfd, (const struct sockaddr *)&addr, sizeof(struct sockaddr_in));
-    assert(r == 0, "connect");
+    printf("daytime: connecting to %s\n", SERVER_HOST);
+    if ((r = connect(sockfd, &addr, sizeof(addr))) < 0) {
+        printf("daytime: connect failed: %d\n", r);
+        exit(1);
+    }
+
+    char buf[512];
+    int n;
 
     while (1) {
-        char buf[512];
-        ssize_t n;
-
-        n = recv(sockfd, buf, sizeof(buf), 0);
-        if (n <= 0)
-            break;
+        n = read(sockfd, buf, sizeof(buf));
+        printf("daytime: read %d bytes\n", n);
+        if (n <= 0) break;  // EOF or error
         write(1, buf, n);
     }
 
+    printf("daytime: closing socket\n");
     close(sockfd);
-    return 0;
+    printf("daytime: socket closed successfully\n");
+    exit(0);
 }

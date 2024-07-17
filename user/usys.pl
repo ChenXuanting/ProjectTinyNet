@@ -43,3 +43,6 @@ entry("connect");
 entry("bind");
 entry("listen");
 entry("accept");
+entry("gethostbyname");
+entry("inetaddress");
+entry("timenow");

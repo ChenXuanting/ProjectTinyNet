@@ -22,10 +22,13 @@
 #define SYS_close  21
 
 // System calls for labs
-#define SYS_ntas   22
-#define SYS_nfree  23
-#define SYS_socket  24
-#define SYS_connect 25
-#define SYS_bind    26
-#define SYS_listen  27
-#define SYS_accept  28
+#define SYS_ntas            22
+#define SYS_nfree           23
+#define SYS_socket          24
+#define SYS_connect         25
+#define SYS_bind            26
+#define SYS_listen          27
+#define SYS_accept          28
+#define SYS_gethostbyname   29
+#define SYS_inetaddress     30
+#define SYS_timenow     31
